@@ -3,32 +3,49 @@ import joblib
 import numpy as np
 from PIL import Image, ImageOps
 
-loaded_model = joblib.load("mnist_model.joblib")
+
+# Load model and scaler
+loaded_model = joblib.load("mnist_rf_model.joblib")
+scaler = joblib.load("scaler.joblib")
 
 def predict_digit(image):
-    image = Image.fromarray(image)  # Convert numpy array to PIL Image
-    image = ImageOps.grayscale(image)  # Convert to grayscale
-    image = ImageOps.invert(image)  # Invert colors (if needed)
-    image_array = image.resize((28, 28))  # Reshape to match model input
-    image_array = np.array(image_array)  # Convert to numpy array
-    image_array = image_array / 255.0  # Normalize pixel values
-    image_array = np.array(image).reshape(1, 28, 28, 1)  # Add batch and channel dimensions
+    try:
+        if isinstance(image, dict):
+            layers = image.get("layers", [])
+            if not layers:
+                return "Please draw a digit before submitting."
+            image_array = np.array(layers[0])
+        else:
+            image_array = image
 
-    #make prediction
-    prediction = loaded_model.predict(image_array)
-    predicted_digit = np.argmax(prediction)  # Get the predicted digit
-    return int(predicted_digit)
+        img = Image.fromarray(image_array).convert("L")
+        img = ImageOps.invert(img)
+        img = img.resize((28, 28))
+
+        img_array = np.array(img) / 255.0
+        img_array = img_array.reshape(1, 784)
+
+        # 🔧 Scale using the same scaler used during training
+        img_array_scaled = scaler.transform(img_array)
+
+        prediction = loaded_model.predict(img_array_scaled)
+        return int(prediction[0])
+
+    except Exception as e:
+        print("🔥 ERROR:", e)
+        return f"Error: {e}"
+
 
 # Define the Gradio interface
+# Gradio interface (no shape, no dict access, pure array)
 interface = gr.Interface(
     fn=predict_digit,
-    inputs=gr.Sketchpad(scale=2,),  # Users can draw digits here
-
-    outputs="text",  # Output will be the predicted digit
-    live=True,
+    inputs=gr.Sketchpad(scale=10),  # Resizable canvas
+    outputs=gr.Label(num_top_classes=10),  # Single output for digit prediction
+    live=True,  # Enable live prediction
     title="Digit Recognition App",
     description="Draw a digit (0–9) and get an instant prediction!"
 )
 
 if __name__ == "__main__":
-    interface.launch(share=True, server_name="127.0.0.1", server_port=7860)  # Set share=True to allow public access
+    interface.launch(share=True)
